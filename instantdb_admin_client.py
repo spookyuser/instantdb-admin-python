@@ -410,8 +410,9 @@ class InstantDBAdminAPI:
         base_url (str, optional): InstantDB API base URL. Defaults to "https://api.instantdb.com"
 
     Example:
-        >>> client = InstantDBAdminAPI(app_id="your-app-id", admin_token="your-token")
-        >>> result = await client.query({"users": {}})
+        Initialize the client and query data:
+        client = InstantDBAdminAPI(app_id="your-app-id", admin_token="your-token")
+        result = await client.query({"users": {}})
 
     """
 
@@ -449,8 +450,8 @@ class InstantDBAdminAPI:
 
         Example:
             Query data as a specific user:
-            user_client = client.as_user(email="user@example.com")
-           result = await user_client.query({"goals": {}})
+                user_client = client.as_user(email="user@example.com")
+                result = await user_client.query({"goals": {}})
 
         """
         new_client = InstantDBAdminAPI(
