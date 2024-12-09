@@ -555,13 +555,13 @@ class InstantDBAdminAPI:
                 "checkResults": [DebugCheckResult(**r) for r in data["check-results"]],
             }
 
-    async def transact(self, steps: List[List[Any]]) -> Dict[str, Any]:
+    async def transact(self, steps: List[List[str | Dict[str, Any]]]) -> Dict[str, Any]:
         """Execute a transaction to write data.
 
         Use this to write data! You can create, update, delete, and link objects.
 
         Args:
-            steps (List[List[Any]]): List of transaction steps in the format:
+            steps (List[List[str]]): List of transaction steps in the format:
                 [operation, collection, id, data]
 
         Returns:
