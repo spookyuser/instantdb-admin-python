@@ -19,10 +19,79 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, BinaryIO, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Any, BinaryIO, Dict, List, Optional, Union
 
 import aiohttp
 from typing_extensions import TypedDict
+
+# ruff: noqa: UP006, UP007
+
+@dataclass
+class Step:
+    """Base class for database operation steps."""
+
+    def to_list(self) -> list[str | dict[str, Any]]:
+        """Convert step to InstantDB transaction format."""
+        raise NotImplementedError
+
+
+@dataclass
+class Update(Step):
+    """Update or create an entity."""
+
+    collection: str
+    id: str
+    data: dict[str, Any]
+
+    def to_list(self) -> list[str | dict[str, Any]]:
+        return ["update", self.collection, self.id, self.data]
+
+
+@dataclass
+class Merge(Step):
+    """Merge partial data into an existing entity."""
+
+    collection: str
+    id: str
+    data: dict[str, Any]
+
+    def to_list(self) -> list[str | dict[str, Any]]:
+        return ["merge", self.collection, self.id, self.data]
+
+
+@dataclass
+class Delete(Step):
+    """Delete an entity."""
+
+    collection: str
+    id: str
+
+    def to_list(self) -> list[str | dict[str, Any]]:
+        return ["delete", self.collection, self.id]
+
+
+@dataclass
+class Link(Step):
+    """Create links between entities."""
+
+    collection: str
+    id: str
+    links: dict[str, str | list[str]]
+
+    def to_list(self) -> list[str | dict[str, Any]]:
+        return ["link", self.collection, self.id, self.links]
+
+
+@dataclass
+class Unlink(Step):
+    """Remove links between entities."""
+
+    collection: str
+    id: str
+    links: dict[str, str | list[str]]
+
+    def to_list(self) -> list[str | dict[str, Any]]:
+        return ["unlink", self.collection, self.id, self.links]
 
 
 # Type definitions
@@ -555,37 +624,40 @@ class InstantDBAdminAPI:
                 "checkResults": [DebugCheckResult(**r) for r in data["check-results"]],
             }
 
-    async def transact(self, steps: List[List[str | Dict[str, Any]]]) -> Dict[str, Any]:
-        """Execute a transaction to write data.
-
-        Use this to write data! You can create, update, delete, and link objects.
+    async def transact(self, steps: list[Step]) -> dict[str, Any]:
+        """Execute a transaction using type-safe Step objects.
 
         Args:
-            steps (List[List[str]]): List of transaction steps in the format:
-                [operation, collection, id, data]
+            steps: List of Step objects representing database operations
 
         Returns:
-            Dict[str, Any]: Transaction results
+            dict[str, Any]: Transaction results
 
         Example:
-            Create a new goal:
-                await db.transact([
-                    ["update", "goals", "goal-123", {"title": "Get fit"}]
-                ])
-
             Create and link objects:
                 await db.transact([
-                    ["update", "todos", "todo-123", {"title": "Go running"}],
-                    ["link", "goals", "goal-123", {"todos": "todo-123"}]
+                    Update(
+                        collection="todos",
+                        id="todo-123",
+                        data={"title": "Go running"}
+                    ),
+                    Link(
+                        collection="goals",
+                        id="goal-123",
+                        links={"todos": "todo-123"}
+                    )
                 ])
 
         Raises:
             Exception: If the transaction fails
 
         """
+        # Convert Step objects to lists
+        step_lists = [step.to_list() for step in steps]
+
         async with aiohttp.ClientSession(headers=self.headers) as session, session.post(
             f"{self.config['base_url']}/admin/transact",
-            json={"steps": steps},
+                json={"steps": step_lists},
         ) as response:
             if response.status != 200:
                 error_text = await response.text()
