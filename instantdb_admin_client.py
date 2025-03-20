@@ -15,6 +15,7 @@ The client provides three main components:
 (written mostly by claude-3-5-sonnet-20241022 with gentle guidance by @aphexcx)
 """
 
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,6 +24,11 @@ from typing import Any, BinaryIO, Dict, List, Optional, Union
 
 import aiohttp
 from typing_extensions import TypedDict
+
+# Version constants, used for API headers
+# and corresponding to the InstantDB version this client is based off of
+VERSION = "v0.17.31"
+CORE_VERSION = "v0.17.31"
 
 # ruff: noqa: UP006, UP007
 
@@ -184,8 +190,8 @@ class Auth:
         """
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.post(
-                f"{self.base_url}/admin/refresh_tokens",
-                json={"email": email},
+                    f"{self.base_url}/admin/refresh_tokens",
+                    json={"email": email},
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to create token: {await response.text()}")
@@ -215,8 +221,8 @@ class Auth:
         """
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{self.base_url}/runtime/auth/verify_refresh_token",
-                json={"app-id": self.app_id, "refresh-token": token},
+                    f"{self.base_url}/runtime/auth/verify_refresh_token",
+                    json={"app-id": self.app_id, "refresh-token": token},
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to verify token: {await response.text()}")
@@ -313,59 +319,102 @@ class Storage:
         self.app_id = config["app_id"]
         self.headers = headers
 
-    async def upload(
-        self,
-        pathname: str,
-        file: Union[bytes, BinaryIO],
-        content_type: str = "application/octet-stream",
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> bool:
+    async def uploadFile(
+            self,
+            pathname: str,
+            file: Union[bytes, BinaryIO],
+            options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Upload a file to InstantDB storage.
 
         Args:
             pathname (str): The path where the file will be stored
             file (Union[bytes, BinaryIO]): The file data as bytes or file-like object
-            content_type (str, optional): The content type of the file. Defaults to "application/octet-stream"
-            metadata (Optional[Dict[str, Any]], optional): Additional metadata for the file
+            options (Optional[Dict[str, Any]], optional): Options for the upload
+                - contentType: The content type of the file
+                - contentDisposition: The content disposition header
 
         Returns:
-            bool: True if upload was successful
+            Dict[str, Any]: Upload result containing file ID and URL
 
         Example:
             Upload a file:
                 with open("photo.jpg", "rb") as f:
-                    success = await db.storage.upload("photos/profile.jpg", f, "image/jpeg")
+                    result = await db.storage.uploadFile(
+                        "photos/profile.jpg",
+                        f,
+                        {"contentType": "image/jpeg"}
+                    )
+                    print(f"File ID: {result['id']}")
 
         Raises:
             Exception: If upload fails
 
         """
-        metadata = metadata or {}
+        options = options or {}
+        content_type = options.get("contentType", "application/octet-stream")
 
-        # Get presigned URL for upload
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            async with session.post(
-                f"{self.base_url}/admin/storage/signed-upload-url",
-                json={
-                    "app_id": self.app_id,
-                    "filename": pathname,
-                },
-            ) as response:
-                if response.status != 200:
-                    raise Exception(f"Failed to get upload URL: {await response.text()}")
-                data = await response.json()
-                presigned_url = data["data"]
+        # Prepare headers
+        headers = {**self.headers, "path": pathname, "content-type": content_type}
 
-        # Upload file to presigned URL
-        headers = {"Content-Type": content_type}
+        # Add content disposition if provided
+        if "contentDisposition" in options:
+            headers["content-disposition"] = options["contentDisposition"]
+
+        # Prepare file data
         if isinstance(file, bytes):
             file_data = file
         else:
             file_data = file.read()
 
+        # Direct upload to /admin/storage/upload
         async with aiohttp.ClientSession() as session:
-            async with session.put(presigned_url, data=file_data, headers=headers) as response:
-                return response.status == 200
+            async with session.put(
+                    f"{self.base_url}/admin/storage/upload",
+                    data=file_data,
+                    headers=headers,
+            ) as response:
+                if response.status != 200:
+                    raise Exception(f"Failed to upload file: {await response.text()}")
+
+                try:
+                    data = await response.json()
+                    # Return the data as-is, which should have the format { data: { id: string } }
+                    return data
+                except Exception:
+                    # If there's an error parsing the JSON, return a simplified response
+                    return {"data": {"id": None}, "success": response.status == 200}
+
+    async def upload(
+            self,
+            pathname: str,
+            file: Union[bytes, BinaryIO],
+            content_type: str = "application/octet-stream",
+            metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Upload a file to InstantDB storage. (Deprecated)
+
+        This method is deprecated. Use uploadFile instead.
+
+        Args:
+            pathname (str): The path where the file will be stored
+            file (Union[bytes, BinaryIO]): The file data as bytes or file-like object
+            content_type (str, optional): The content type of the file
+            metadata (Optional[Dict[str, Any]], optional): Additional metadata for the file
+
+        Returns:
+            Dict[str, Any]: Upload result containing file ID and URL
+
+        Raises:
+            Exception: If upload fails
+
+        """
+        # Call the new uploadFile method
+        return await self.uploadFile(
+            pathname=pathname,
+            file=file,
+            options={"contentType": content_type, **(metadata or {})},
+        )
 
     async def get_download_url(self, pathname: str) -> str:
         """Get a download URL for a file.
@@ -387,8 +436,8 @@ class Storage:
         """
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.get(
-                f"{self.base_url}/admin/storage/signed-download-url",
-                params={"app_id": self.app_id, "filename": pathname},
+                    f"{self.base_url}/admin/storage/signed-download-url",
+                    params={"app_id": self.app_id, "filename": pathname},
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to get download URL: {await response.text()}")
@@ -434,8 +483,8 @@ class Storage:
         """
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.delete(
-                f"{self.base_url}/admin/storage/files",
-                params={"filename": pathname},
+                    f"{self.base_url}/admin/storage/files",
+                    params={"filename": pathname},
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to delete file: {await response.text()}")
@@ -460,8 +509,8 @@ class Storage:
         """
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.post(
-                f"{self.base_url}/admin/storage/files/delete",
-                json={"filenames": pathnames},
+                    f"{self.base_url}/admin/storage/files/delete",
+                    json={"filenames": pathnames},
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to delete files: {await response.text()}")
@@ -491,6 +540,8 @@ class InstantDBAdminAPI:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {admin_token}",
             "App-Id": app_id,
+            "Instant-Admin-Version": VERSION,
+            "Instant-Core-Version": CORE_VERSION,
         }
 
         # Initialize components
@@ -577,17 +628,17 @@ class InstantDBAdminAPI:
         """
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.post(
-                f"{self.config['base_url']}/admin/query",
-                json={"query": query},
+                    f"{self.config['base_url']}/admin/query",
+                    json={"query": query},
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Query failed: {await response.text()}")
                 return await response.json()
 
     async def debug_query(
-        self,
-        query: Dict[str, Any],
-        rules: Optional[Dict[str, Any]] = None,
+            self,
+            query: Dict[str, Any],
+            rules: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a query with debug information about permissions.
 
@@ -613,8 +664,8 @@ class InstantDBAdminAPI:
 
         """
         async with aiohttp.ClientSession(headers=self.headers) as session, session.post(
-            f"{self.config['base_url']}/admin/query_perms_check",
-            json={"query": query, "rules-override": rules},
+                f"{self.config['base_url']}/admin/query_perms_check",
+                json={"query": query, "rules-override": rules},
         ) as response:
             if response.status != 200:
                 raise Exception(f"Debug query failed: {await response.text()}")
@@ -656,7 +707,7 @@ class InstantDBAdminAPI:
         step_lists = [step.to_list() for step in steps]
 
         async with aiohttp.ClientSession(headers=self.headers) as session, session.post(
-            f"{self.config['base_url']}/admin/transact",
+                f"{self.config['base_url']}/admin/transact",
                 json={"steps": step_lists},
         ) as response:
             if response.status != 200:
@@ -665,9 +716,9 @@ class InstantDBAdminAPI:
             return await response.json()
 
     async def debug_transact(
-        self,
-        steps: List[List[Any]],
-        rules: Optional[Dict[str, Any]] = None,
+            self,
+            steps: List[List[Any]],
+            rules: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a transaction with debug information about permissions.
 
@@ -693,8 +744,8 @@ class InstantDBAdminAPI:
         """
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.post(
-                f"{self.config['base_url']}/admin/transact_perms_check",
-                json={"steps": steps, "rules-override": rules},
+                    f"{self.config['base_url']}/admin/transact_perms_check",
+                    json={"steps": steps, "rules-override": rules},
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Debug transaction failed: {await response.text()}")
