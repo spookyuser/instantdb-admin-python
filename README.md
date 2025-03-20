@@ -1,6 +1,8 @@
 # InstantDB Admin Python Client
 
-A Python client for the InstantDB Admin API, providing functionality for data operations, user management, and file storage.
+A Python client for the [InstantDB](https://www.instantdb.com/) Admin API, providing functionality for data operations, user management, and file storage.
+
+InstantDB is a realtime database that makes it easy to build collaborative apps. This client provides Python developers with access to InstantDB's admin capabilities.
 
 This client is built based on the [unofficial InstantDB Admin HTTP API](https://www.dropbox.com/scl/fi/2yjy6xvqa0459hqeqg950/Unofficial-Admin-HTTP-API.paper?dl=0) and is adapted from the official TypeScript InstantDB admin client.
 
