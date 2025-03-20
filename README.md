@@ -6,9 +6,16 @@ This client is built based on the [unofficial InstantDB Admin HTTP API](https://
 
 ## Installation
 
-```bash
-pip install instantdb-admin-python
-```
+This client is designed to be a single, self-contained file that you can drop directly into your Python project:
+
+1. Download `instantdb_admin_client.py` from this repository
+2. Copy it into your project directory
+3. Import it in your code
+
+The only dependencies are:
+- Python 3.7+
+- `aiohttp`
+- `typing_extensions`
 
 ## Authentication
 
@@ -43,6 +50,33 @@ result = await db.query({
 
 # All goals alongside their todos
 result = await db.query({"goals": {"todos": {}}})
+```
+
+### Real-world Example: Querying a User's Profile
+
+Here's a real-world example of querying a user's profile from associated user data:
+
+```python
+async def get_user_profile_id(user_id: str) -> str:
+    """Get the profile ID for the user."""
+    try:
+        # Query the user's profile ID
+        result = await db.query({
+            "$users": {
+                "$": {
+                    "where": {"id": user_id},
+                },
+                "profile": {},
+            },
+        })
+
+        user_profile_id = result.get("$users", [{}])[0].get("profile", {})[0].get("id")
+        if not user_profile_id:
+            raise ValueError(f"No profile found for user {user_id}")
+
+        return user_profile_id
+    except Exception as e:
+        raise
 ```
 
 ## Making Transactions
@@ -158,12 +192,6 @@ result = await db.as_user(guest=True).debug_transact([
     ["update", "goals", "goal-123", {"title": "Get fit"}]
 ])
 ```
-
-## Requirements
-
-- Python 3.7+
-- aiohttp
-- typing_extensions
 
 ## License
 
